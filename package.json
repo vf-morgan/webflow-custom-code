@@ -1,0 +1,15 @@
+{
+  "name": "webflow-custom-code",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "dev": "parcel serve src/main.js --port 1234",
+    "build": "parcel build src/main.js --dist-dir dist"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "parcel": "^2.16.4"
+  }
+}
