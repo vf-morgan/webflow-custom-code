@@ -4,12 +4,13 @@
   "description": "",
   "scripts": {
     "dev": "parcel serve src/main.js --port 1234",
-    "build": "parcel build src/main.js --dist-dir dist"
+    "build": "esbuild src/main.js --bundle --minify --outfile=dist/main.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "esbuild": "^0.25.5",
     "parcel": "^2.16.4"
   }
 }
