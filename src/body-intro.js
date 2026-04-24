@@ -1,5 +1,8 @@
-import { installScrubbedServiceCardsBurst, killScrubbedServiceCardsBurst } from "./epic-service-cards-handoff.js";
-import { EPIC_INTRO_PIN_SCROLL_VH, EPIC_STORY_CARDS_SCRUB_PX } from "./epic-constants.js";
+import {
+  EPIC_BLUE_WASH_SCRUB_DURATION,
+  EPIC_INTRO_PIN_SCROLL_VH,
+  EPIC_INTRO_REENTRY_STAGE_FADE_END,
+} from "./epic-constants.js";
 
 export function bootstrapEpicBodyIntro() {
   "use strict";
@@ -135,14 +138,11 @@ export function bootstrapEpicBodyIntro() {
   /** Required for Webflow JS-only: keeps end-of-line cursors on the same row as the text. */
   function injectBodyIntroLayoutStyles() {
     var id = "epic-body-intro-layout-styles";
-    if (document.getElementById(id)) return;
-    var el = document.createElement("style");
-    el.id = id;
-    el.textContent = [
+    var el = document.getElementById(id);
+    var css = [
       "/* .body-intro__stage often shrink-wraps to the <h2>’s text; then h2 width:100% is 100% of",
       "   that max-content and SplitText only sees one line. Stretch the stage in the flex chain. */",
-      "/* Blue iris: burst is below the morph. Pin-spacer gets same blue as .body-intro so the",
-      "   empty band above a translated pinned intro is not transparent (no fixed-hero “hole”). */",
+      "/* Blue iris + pin-spacer use same blue as .body-intro so the pinned band is not transparent. */",
       "div.pin-spacer[class*=\"epic-body-intro-pin\"],",
       "div[class*=\"pin-spacer-epic-body-intro-pin\"] {",
       "  background: #0f33ff !important;",
@@ -150,40 +150,36 @@ export function bootstrapEpicBodyIntro() {
       ".epic-blue-burst {",
       "  position: fixed !important;",
       "  pointer-events: none !important;",
-      "  z-index: 1 !important;",
+      "  z-index: 35 !important;",
+      "  background: #0f33ff !important;",
+      "  border-radius: 50% !important;",
+      "  mix-blend-mode: normal !important;",
+      "}",
+      "/* Iris: absolute child of .body-intro. Do NOT set position:relative !important on .body-intro — it",
+      "   overrides ScrollTrigger’s pin (fixed) and breaks pinning. Fixed pin establishes the containing block. */",
+      ".body-intro.epic-body-intro--bursting { overflow: hidden !important; }",
+      "/* Section iris: wins over page-level `.epic-blue-burst { position: fixed }` in Webflow embed. */",
+      "body .body-intro > .epic-blue-burst.epic-blue-burst--section {",
+      "  position: absolute !important;",
+      "  left: 50% !important;",
+      "  top: 50% !important;",
+      "  pointer-events: none !important;",
+      "  z-index: 28 !important;",
       "  background: #0f33ff !important;",
       "  border-radius: 50% !important;",
       "  mix-blend-mode: normal !important;",
       "}",
       "body .value-prop-morph-dot--viewport,",
       "body .value-prop-morph-dot--viewport.value-prop-morph-dot {",
-      "  z-index: 30 !important;",
+      "  z-index: 40 !important;",
       "  position: fixed !important;",
-      "}",
-      "/* value-prop-morph is appended last on body: z-30 can paint over #story. During service-card burst,",
-      "   body.epic-burst-below-morph (set in handoff) lowers the morph; #story + parent are lifted. */",
-      "body.epic-burst-below-morph .value-prop-morph-dot--viewport,",
-      "body.epic-burst-below-morph .value-prop-morph-dot--viewport.value-prop-morph-dot {",
-      "  z-index: 1 !important;",
-      "}",
-      "/* During burst, force #story to fill the viewport and center its content. Without this,",
-      "   the morph dot (viewport center) and the cards (stuck in document flow) are in different",
-      "   Y bands: Flip can look off-screen or mostly vertical. See /demo/epic-service-cards-standalone.html */",
-      "body.epic-burst-below-morph #story {",
-      "  position: relative !important;",
-      "  z-index: 2 !important;",
-      "  isolation: isolate !important;",
-      "  min-height: 100dvh !important;",
-      "  min-height: 100vh !important;",
-      "  display: flex !important;",
-      "  flex-direction: column !important;",
-      "  justify-content: center !important;",
-      "  align-items: center !important;",
-      "  box-sizing: border-box !important;",
       "}",
       ".value-prop-morph-dot {",
       "  box-sizing: border-box !important;",
+      "  pointer-events: none !important;",
+      "  border-radius: 50% !important;",
       "}",
+      ".body-intro__stage { position: relative !important; }",
       "body .body-intro .body-intro__stage, .body-intro__stage {",
       "  display: block !important;",
       "  width: 100% !important;",
@@ -254,6 +250,13 @@ export function bootstrapEpicBodyIntro() {
       "  overflow: visible !important;",
       "}",
     ].join("\n");
+    if (el) {
+      el.textContent = css;
+      return;
+    }
+    el = document.createElement("style");
+    el.id = id;
+    el.textContent = css;
     document.head.appendChild(el);
   }
 
@@ -385,25 +388,49 @@ export function bootstrapEpicBodyIntro() {
     }
     if (!r) {
       if (store && store.last) return store.last;
+      var cx0 = window.innerWidth / 2;
+      var cy0 = window.innerHeight / 2;
+      var w0 = 48;
+      var h0 = 48;
       return {
-        cx: window.innerWidth / 2,
-        cy: window.innerHeight / 2,
-        width: 7,
-        height: 22,
+        left: cx0 - w0 / 2,
+        top: cy0 - h0 / 2,
+        width: w0,
+        height: h0,
+        cx: cx0,
+        cy: cy0,
       };
     }
     var w = r.right - r.left;
     var h = r.bottom - r.top;
+    var cx = (r.left + r.right) / 2;
+    var cy = (r.top + r.bottom) / 2;
+    /** One visible cursor → tiny union → stray “pixel square” on screen; expand around center. */
+    var minSpan = 28;
+    if (w < minSpan || h < minSpan) {
+      w = Math.max(minSpan, w);
+      h = Math.max(minSpan, h);
+    }
     var out = {
-      left: r.left,
-      top: r.top,
+      left: cx - w / 2,
+      top: cy - h / 2,
       width: w,
       height: h,
-      cx: (r.left + r.right) / 2,
-      cy: (r.top + r.bottom) / 2,
+      cx: cx,
+      cy: cy,
     };
     if (store) store.last = out;
     return out;
+  }
+
+  /**
+   * Same center as cursor union, but width === height so border-radius reads as a true circle
+   * (vertical cursor bars otherwise produce a wide flat “pill” or square-looking morph).
+   */
+  function readUnionCircleMetrics(cursors, store) {
+    var u = readUnionRect(cursors, store);
+    var side = Math.max(u.width || 0, u.height || 0, 28);
+    return { cx: u.cx, cy: u.cy, side: side };
   }
 
   function init() {
@@ -421,29 +448,6 @@ export function bootstrapEpicBodyIntro() {
     if (REDUCED_MOTION) {
       gsap.set(h2, { autoAlpha: 1, color: "#ffffff" });
       gsap.set(bodyIntro, { backgroundColor: "#0f33ff" });
-      gsap.set(document.documentElement, { backgroundColor: "#0f33ff" });
-      gsap.set(document.body, { backgroundColor: "#0f33ff" });
-      var rmDot = document.createElement("div");
-      rmDot.className =
-        "value-prop-morph-dot value-prop-morph-dot--viewport value-prop-morph-dot--reduced-motion";
-      rmDot.setAttribute("aria-hidden", "true");
-      document.body.appendChild(rmDot);
-      gsap.set(rmDot, {
-        position: "fixed",
-        left: "50vw",
-        top: "50vh",
-        xPercent: -50,
-        yPercent: -50,
-        width: 28,
-        height: 28,
-        borderRadius: "50%",
-        backgroundColor: "#ffffff",
-        borderStyle: "solid",
-        borderColor: "#4a69f8",
-        borderWidth: 5,
-        autoAlpha: 1,
-        pointerEvents: "none",
-      });
       return;
     }
 
@@ -487,7 +491,7 @@ export function bootstrapEpicBodyIntro() {
       var cursors = injectCursors(contentLines);
       var charsByLine = groupCharsByLine(contentLines, chars);
       var stage = qs(SELECTORS.stage, bodyIntro) || bodyIntro;
-  
+
       var morphDot = stage.querySelector(".value-prop-morph-dot");
       if (!morphDot) {
         morphDot = document.createElement("div");
@@ -498,8 +502,22 @@ export function bootstrapEpicBodyIntro() {
       try {
         window.__epicMorphDot = morphDot;
       } catch (e) {}
-      gsap.set(morphDot, { autoAlpha: 0, pointerEvents: "none" });
-  
+      gsap.set(morphDot, {
+        autoAlpha: 0,
+        pointerEvents: "none",
+        position: "absolute",
+        left: "50%",
+        top: "50%",
+        xPercent: -50,
+        yPercent: -50,
+        width: 0,
+        height: 0,
+        scale: 0,
+        transformOrigin: "50% 50%",
+        borderRadius: "50%",
+        visibility: "hidden",
+      });
+
       prepCharWidths(contentLines, chars);
   
       gsap.set(h2, { autoAlpha: 0 });
@@ -529,6 +547,8 @@ export function bootstrapEpicBodyIntro() {
       var pinBlueWashScroll = { onUpdate: null };
       /** True only after forward blue-wash commits. Must exist before `pinTl` onUpdate references it. */
       var blueFieldCommitted = false;
+      /** After first blue commit, soften re-entry: ramp stage opacity over early pin progress (scroll down). */
+      var introStageReentryFadeEnabled = false;
       var pinTl = gsap.timeline({
         defaults: { ease: "none" },
         scrollTrigger: {
@@ -552,11 +572,45 @@ export function bootstrapEpicBodyIntro() {
             if (typeof pinBlueWashScroll.onUpdate === "function") {
               pinBlueWashScroll.onUpdate(self);
             }
+            if (introStageReentryFadeEnabled && stage) {
+              var fe = reentryFadeEndProgress;
+              var eps = 0.018;
+              /** Past merge start, or at rest at pin start: full opacity. Else dim through collapseMeet + cursor x so bars never read as flying in/out. */
+              if (self.progress >= fe || self.progress <= eps) {
+                gsap.set(stage, { autoAlpha: 1 });
+              } else {
+                var u = fe <= 1e-6 ? 1 : self.progress / fe;
+                var alpha = Math.min(1, Math.pow(u, 0.38));
+                gsap.set(stage, { autoAlpha: alpha });
+              }
+            }
           },
         },
       });
   
       refreshCursorDx();
+
+      /** When scrub sits before mergeCircle, nested mergeTL does not run — morph keeps merge end state
+       *  unless we force hide at pin start (log: morphOpacity 1 at progress ~0 on second scrub). */
+      pinTl.set(
+        morphDot,
+        {
+          autoAlpha: 0,
+          visibility: "hidden",
+          pointerEvents: "none",
+          position: "absolute",
+          left: "50%",
+          top: "50%",
+          xPercent: -50,
+          yPercent: -50,
+          width: 0,
+          height: 0,
+          scale: 0,
+          transformOrigin: "50% 50%",
+          borderRadius: "50%",
+        },
+        0
+      );
   
       pinTl.addLabel("cursorsIn", 0);
       pinTl.to(
@@ -626,48 +680,87 @@ export function bootstrapEpicBodyIntro() {
       );
   
       pinTl.addLabel("mergeCircle", ">");
+      /** Explicit hide only — avoid clearProps (caused stray visible frame / wrong coords before merge). */
       pinTl.set(
         morphDot,
         {
           autoAlpha: 0,
-          clearProps:
-            "left,top,width,height,borderRadius,transform,xPercent,yPercent,backgroundColor",
+          visibility: "hidden",
+          pointerEvents: "none",
+          position: "absolute",
+          left: "50%",
+          top: "50%",
+          xPercent: -50,
+          yPercent: -50,
+          width: 0,
+          height: 0,
+          scale: 0,
+          transformOrigin: "50% 50%",
+          borderRadius: "50%",
+          backgroundColor: "#0f33ff",
+          borderWidth: 0,
+          borderColor: "transparent",
         },
         "<mergeCircle"
       );
-      pinTl.call(refreshCursorDx, null, "mergeCircle");
-  
+      /** Frozen at first forward pass through mergeCircle so scrub-reverse does not re-read cursors
+       *  mid-tween (they can move off-screen / wrong order → union cy like -467 in debug logs). */
+      var mergeSnap = {
+        cx: (typeof window !== "undefined" ? window.innerWidth : 800) * 0.5,
+        cy: (typeof window !== "undefined" ? window.innerHeight : 600) * 0.5,
+        side: 28,
+      };
+      pinTl.call(
+        function snapshotMergeGeomForScrub() {
+          refreshCursorDx();
+          var st = pinTl.scrollTrigger;
+          if (st && st.direction < 0) {
+            return;
+          }
+          var m = readUnionCircleMetrics(cursors, unionStore);
+          mergeSnap.cx = m.cx;
+          mergeSnap.cy = m.cy;
+          mergeSnap.side = m.side;
+        },
+        null,
+        "mergeCircle"
+      );
+
+      /** Cursors resolve into a blue circle (#0f33ff), then blue wash fills .body-intro. */
       var mergeUnion = {
         autoAlpha: 0,
         immediateRender: false,
+        scale: 1,
         position: "fixed",
         left: function () {
-          return readUnionRect(cursors, unionStore).cx;
+          return mergeSnap.cx;
         },
         top: function () {
-          return readUnionRect(cursors, unionStore).cy;
+          return mergeSnap.cy;
         },
         xPercent: -50,
         yPercent: -50,
         width: function () {
-          return readUnionRect(cursors, unionStore).width;
+          return mergeSnap.side;
         },
         height: function () {
-          return readUnionRect(cursors, unionStore).height;
+          return mergeSnap.side;
         },
-        borderRadius: 0,
+        borderRadius: "50%",
         backgroundColor: "#0f33ff",
         borderWidth: 0,
         borderColor: "transparent",
         borderStyle: "solid",
       };
-  
+
       var mergeTL = gsap.timeline();
       mergeTL.fromTo(
         morphDot,
         mergeUnion,
         {
           autoAlpha: 1,
+          visibility: "visible",
+          scale: 1,
           duration: 0.04,
           ease: "none",
         },
@@ -682,26 +775,35 @@ export function bootstrapEpicBodyIntro() {
         },
         0.01
       );
+      mergeTL.to(
+        contentLines,
+        {
+          autoAlpha: 0,
+          duration: 0.12,
+          ease: "power2.inOut",
+        },
+        0.02
+      );
       mergeTL.fromTo(
         morphDot,
         {
           autoAlpha: 1,
           position: "fixed",
           left: function () {
-            return readUnionRect(cursors, unionStore).cx;
+            return mergeSnap.cx;
           },
           top: function () {
-            return readUnionRect(cursors, unionStore).cy;
+            return mergeSnap.cy;
           },
           xPercent: -50,
           yPercent: -50,
           width: function () {
-            return readUnionRect(cursors, unionStore).width;
+            return mergeSnap.side;
           },
           height: function () {
-            return readUnionRect(cursors, unionStore).height;
+            return mergeSnap.side;
           },
-          borderRadius: 0,
+          borderRadius: "50%",
           backgroundColor: "#0f33ff",
           borderWidth: 0,
           borderColor: "transparent",
@@ -713,272 +815,211 @@ export function bootstrapEpicBodyIntro() {
           top: "50vh",
           xPercent: -50,
           yPercent: -50,
-          width: 28,
-          height: 28,
+          width: 32,
+          height: 32,
           borderRadius: "50%",
-          backgroundColor: "#ffffff",
-          borderStyle: "solid",
-          borderColor: "#4a69f8",
-          borderWidth: 5,
+          backgroundColor: "#0f33ff",
+          borderWidth: 0,
+          borderColor: "transparent",
           duration: 0.22,
           ease: "power2.inOut",
         },
         0.04
       );
-  
+
       pinTl.add(mergeTL, "mergeCircle");
-  
-      /** After merge: lengthens pinTl  lowers mergeCompleteProgress (runtime ~0.83  target ~0.74–0.78) so blue+handoff aren’t the last 17% of intro scroll. */
-      pinTl.to({}, { duration: 0.5, ease: "none" }, ">");
-  
-      function mergeCompleteProgress() {
-        var tMerge = pinTl.labels.mergeCircle + mergeTL.duration();
+      pinTl.addLabel("blueWashStart", ">");
+
+      /** Diameter (px) so a circle centered in `el` scales to cover its box. */
+      function sectionBurstCoverPx(el) {
+        var r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+        var w = r && r.width ? r.width : typeof window !== "undefined" ? window.innerWidth : 800;
+        var h = r && r.height ? r.height : typeof window !== "undefined" ? window.innerHeight : 600;
+        return Math.ceil(Math.hypot(w, h) * 1.08);
+      }
+
+      var blueWashDur = EPIC_BLUE_WASH_SCRUB_DURATION;
+      var blueBgRamp = Math.max(0.06, blueWashDur * 0.2);
+      var blueBurst = document.createElement("div");
+      blueBurst.className = "epic-blue-burst epic-blue-burst--section";
+      blueBurst.setAttribute("aria-hidden", "true");
+      bodyIntro.appendChild(blueBurst);
+      gsap.set(blueBurst, { visibility: "hidden", pointerEvents: "none", force3D: true });
+
+      pinTl.set(
+        morphDot,
+        {
+          autoAlpha: 0,
+          visibility: "hidden",
+          pointerEvents: "none",
+        },
+        "blueWashStart"
+      );
+      try {
+        morphDot.classList.remove("value-prop-morph-dot--viewport");
+      } catch (eClsBw) {}
+
+      pinTl.set(
+        blueBurst,
+        {
+          visibility: "visible",
+          left: "50%",
+          top: "50%",
+          xPercent: -50,
+          yPercent: -50,
+          width: function () {
+            return sectionBurstCoverPx(bodyIntro);
+          },
+          height: function () {
+            return sectionBurstCoverPx(bodyIntro);
+          },
+          scale: 0,
+          transformOrigin: "50% 50%",
+          autoAlpha: 1,
+        },
+        "blueWashStart"
+      );
+
+      pinTl.fromTo(
+        blueBurst,
+        { scale: 0 },
+        {
+          scale: 1,
+          duration: blueWashDur,
+          ease: "power2.out",
+          immediateRender: false,
+        },
+        "blueWashStart"
+      );
+
+      pinTl.fromTo(
+        bodyIntro,
+        { backgroundColor: "#fbfbfb" },
+        {
+          backgroundColor: "#0f33ff",
+          duration: blueBgRamp,
+          ease: "none",
+          immediateRender: false,
+        },
+        "blueWashStart+=" + (blueWashDur - blueBgRamp)
+      );
+
+      pinTl.to(
+        blueBurst,
+        {
+          autoAlpha: 0,
+          duration: 0.05,
+          ease: "none",
+        },
+        "blueWashStart+=" + (blueWashDur - 0.05)
+      );
+
+      /** Pin progress (0–1) at `mergeCircle` label ≈ end of `collapseMeet` (bars/lines settled). */
+      var pinDurForReentryFade = pinTl.duration();
+      var reentryFadeEndProgress =
+        pinDurForReentryFade > 0 &&
+        pinTl.labels.mergeCircle != null &&
+        typeof pinTl.labels.mergeCircle === "number"
+          ? Math.min(0.52, pinTl.labels.mergeCircle / pinDurForReentryFade + 0.03)
+          : EPIC_INTRO_REENTRY_STAGE_FADE_END;
+
+      function blueWashStartProgress() {
+        var t = pinTl.labels.blueWashStart;
         var d = pinTl.duration();
-        return d > 0 ? Math.min(1, tMerge / d) : 1;
+        return d > 0 ? t / d : 0;
       }
-  
-      function reparentMorphDotToBody() {
-        if (!morphDot.parentNode || morphDot.parentNode === document.body) return;
-        document.body.appendChild(morphDot);
-        morphDot.classList.add("value-prop-morph-dot--viewport");
-        try {
-          window.__epicMorphDot = morphDot;
-        } catch (e) {}
+
+      function blueWashEndProgress() {
+        var t = pinTl.labels.blueWashStart + blueWashDur;
+        var d = pinTl.duration();
+        return d > 0 ? Math.min(1, t / d) : 1;
       }
-  
+
       function restoreMorphDotToStage() {
         if (morphDot.parentNode !== document.body) return;
         morphDot.classList.remove("value-prop-morph-dot--viewport");
         stage.appendChild(morphDot);
       }
-  
-      var blueWashReverseInProgress = false;
-      var blueWashActiveTl = null;
-      var blueBurstEl = null;
-      var lastPinProgress = -1;
-  
-      function removeBlueBurst() {
-        if (blueBurstEl && blueBurstEl.parentNode) {
-          blueBurstEl.parentNode.removeChild(blueBurstEl);
-        }
-        blueBurstEl = null;
-      }
-  
-      function playBlueWashOneShot() {
-        if (blueWashActiveTl) {
-          blueWashActiveTl.kill();
-          blueWashActiveTl = null;
-        }
-        blueWashReverseInProgress = false;
 
-        removeBlueBurst();
-        var burst = document.createElement("div");
-        burst.className = "epic-blue-burst";
-        burst.setAttribute("aria-hidden", "true");
-        document.body.appendChild(burst);
-        blueBurstEl = burst;
-        reparentMorphDotToBody();
-  
-        gsap.set(burst, {
-          left: "50%",
-          top: "50%",
-          xPercent: -50,
-          yPercent: -50,
-          width: "260vmax",
-          height: "260vmax",
-          scale: 0,
-          transformOrigin: "50% 50%",
-          force3D: true,
-        });
-  
-        blueWashActiveTl = gsap.timeline({ defaults: { ease: "power2.out", overwrite: "auto" } });
-        /**
-         * Morph above .epic-blue-burst (layout CSS). Do not set html/body/intro blue until
-         * commitBlueField — same color as the burst made the radial expand invisible on scroll down.
-         */
-        blueWashActiveTl.set(
-          morphDot,
-          {
-            backgroundColor: "#ffffff",
-            borderStyle: "solid",
-            borderColor: "#4a69f8",
-            borderWidth: 5,
-            width: 28,
-            height: 28,
-            borderRadius: "50%",
-            autoAlpha: 1,
-            zIndex: 30,
-          },
-          0
-        );
-        blueWashActiveTl.to(burst, {
-          scale: 1,
-          duration: 0.88,
-          ease: "power2.out",
-        });
-        blueWashActiveTl.add(function commitBlueField() {
+      var morphBlueWashCommitted = false;
+
+      pinBlueWashScroll.onUpdate = function (self) {
+        var p = self.progress;
+        var bws = blueWashStartProgress();
+        var bwe = blueWashEndProgress();
+        if (p >= bws - 1e-6 && p < bwe + 0.02) {
           try {
-            gsap.set(morphDot, {
-              backgroundColor: "#ffffff",
-              borderStyle: "solid",
-              borderColor: "#4a69f8",
-              borderWidth: 5,
-              width: 28,
-              height: 28,
-              borderRadius: "50%",
-              autoAlpha: 1,
-              zIndex: 30,
-            });
-          } catch (e0) {}
+            bodyIntro.classList.add("epic-body-intro--bursting");
+          } catch (eBurstOn) {}
+        } else {
           try {
-            gsap.set([bodyIntro, document.documentElement, document.body], { backgroundColor: "#0f33ff" });
-          } catch (e1) {}
-          removeBlueBurst();
-          blueFieldCommitted = true;
-          try {
-            if (typeof window !== "undefined") {
-              window.__epicMorphCommitDone = true;
-            }
-          } catch (e3) {
-            /* */
-          }
-          requestAnimationFrame(function () {
-            // #region agent log
-            fetch("http://127.0.0.1:7893/ingest/7d36643c-3119-4e7b-9535-9cb0977654ec", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "efd621" }, body: JSON.stringify({ sessionId: "efd621", hypothesisId: "H1", runId: "pre-fix", location: "body-intro:commitBlueField:rAF", message: "calling_install", data: { blueFieldCommitted: true, scrollY: window.pageYOffset, hasStory: !!document.getElementById("story") }, timestamp: Date.now() }) }).catch(function () {});
-            // #endregion
+            bodyIntro.classList.remove("epic-body-intro--bursting");
+          } catch (eBurstOff) {}
+        }
+
+        if (p >= bwe - 1e-5) {
+          if (!morphBlueWashCommitted) {
+            morphBlueWashCommitted = true;
             try {
-              installScrubbedServiceCardsBurst({
-                gsap: gsap,
-                ScrollTrigger: ScrollTrigger,
-                morphEl: morphDot,
-                scrubPx: EPIC_STORY_CARDS_SCRUB_PX,
+              restoreMorphDotToStage();
+            } catch (eRest) {}
+            try {
+              morphDot.classList.remove("value-prop-morph-dot--viewport");
+            } catch (eVp) {}
+            try {
+              gsap.set(morphDot, {
+                autoAlpha: 0,
+                pointerEvents: "none",
+                clearProps:
+                  "left,top,width,height,borderRadius,transform,xPercent,yPercent,backgroundColor,borderWidth,borderColor,borderStyle,zIndex,visibility",
               });
-            } catch (e2) {
-              /* */
-            }
-            requestAnimationFrame(function () {
+            } catch (eMd) {}
+            blueFieldCommitted = true;
+            introStageReentryFadeEnabled = true;
+            try {
+              if (typeof window !== "undefined") {
+                window.__epicMorphCommitDone = true;
+              }
+            } catch (eWin) {}
+            requestAnimationFrame(function syncPinAfterBlueCommit() {
+              try {
+                var stSync = pinTl.scrollTrigger;
+                if (stSync && pinTl) {
+                  pinTl.progress(stSync.progress);
+                }
+                refreshCursorDx();
+              } catch (eSyncFwd) {}
               try {
                 ScrollTrigger.refresh();
-              } catch (e4) {
-                /* */
-              }
+              } catch (eRf) {}
             });
-          });
-        });
-      }
-  
-      function playBlueWashReverse() {
-        if (blueWashActiveTl) {
-          blueWashActiveTl.kill();
-          blueWashActiveTl = null;
-        }
-        removeBlueBurst();
-        blueWashReverseInProgress = true;
-  
-        function startBlueIrisAndMorph() {
-          try {
-            killScrubbedServiceCardsBurst(ScrollTrigger);
-          } catch (eKill) {
-            /* */
           }
-          gsap.set([bodyIntro, document.documentElement, document.body], { backgroundColor: "#fbfbfb" });
-  
-          var burst = document.createElement("div");
-          burst.className = "epic-blue-burst";
-          burst.setAttribute("aria-hidden", "true");
-          document.body.appendChild(burst);
-          blueBurstEl = burst;
-          reparentMorphDotToBody();
-  
-          gsap.set(burst, {
-            left: "50%",
-            top: "50%",
-            xPercent: -50,
-            yPercent: -50,
-            width: "260vmax",
-            height: "260vmax",
-            scale: 1,
-            transformOrigin: "50% 50%",
-            force3D: true,
-          });
-  
-          blueWashActiveTl = gsap.timeline({ defaults: { overwrite: "auto" } });
-          blueWashActiveTl.to(burst, {
-            scale: 0,
-            duration: 0.88,
-            ease: "power2.in",
-          });
-          blueWashActiveTl.to(
-            morphDot,
-            {
-              backgroundColor: "#0f33ff",
-              borderWidth: 0,
-              borderColor: "transparent",
-              duration: 0.28,
-              ease: "power2.in",
-            },
-            "-=0.28"
-          );
-          blueWashActiveTl.add(function finishBlueWashReverse() {
-            removeBlueBurst();
-            gsap.set(morphDot, {
-              backgroundColor: "#0f33ff",
-              borderWidth: 0,
-              borderColor: "transparent",
-            });
-            restoreMorphDotToStage();
+        } else {
+          if (morphBlueWashCommitted) {
+            morphBlueWashCommitted = false;
             blueFieldCommitted = false;
-            blueWashReverseInProgress = false;
-            blueWashActiveTl = null;
-          });
-        }
-  
-        startBlueIrisAndMorph();
-      }
-  
-      function resetBlueWashVisuals() {
-        if (blueWashActiveTl) {
-          blueWashActiveTl.kill();
-          blueWashActiveTl = null;
-        }
-        try {
-          killScrubbedServiceCardsBurst(ScrollTrigger);
-        } catch (eK) {
-          /* */
-        }
-        blueWashReverseInProgress = false;
-        removeBlueBurst();
-        gsap.set([bodyIntro, document.documentElement, document.body], { backgroundColor: "#fbfbfb" });
-        gsap.set(morphDot, {
-          backgroundColor: "#0f33ff",
-          borderWidth: 0,
-          borderColor: "transparent",
-        });
-        restoreMorphDotToStage();
-        blueFieldCommitted = false;
-      }
-  
-      pinBlueWashScroll.onUpdate = function (self) {
-        var mcp = mergeCompleteProgress();
-        var p = self.progress;
-        var last = lastPinProgress;
-        if (last < 0) {
-          if (p > mcp && (!blueFieldCommitted || blueWashReverseInProgress)) {
-            playBlueWashOneShot();
+            introStageReentryFadeEnabled = false;
+            try {
+              if (typeof window !== "undefined") {
+                window.__epicMorphCommitDone = false;
+              }
+            } catch (eWin2) {}
+            requestAnimationFrame(function syncPinAfterBlueScrubBack() {
+              try {
+                var stSync = pinTl.scrollTrigger;
+                if (stSync && pinTl) {
+                  pinTl.progress(stSync.progress);
+                }
+                refreshCursorDx();
+              } catch (eSyncRev) {}
+              try {
+                ScrollTrigger.refresh();
+              } catch (eRfRev) {}
+            });
           }
-          lastPinProgress = p;
-          return;
         }
-        if (last <= mcp && p > mcp && (!blueFieldCommitted || blueWashReverseInProgress)) {
-          playBlueWashOneShot();
-        } else if (blueFieldCommitted && !blueWashReverseInProgress && last > mcp && p <= mcp) {
-          playBlueWashReverse();
-        } else if (!blueFieldCommitted && last > mcp && p <= mcp) {
-          resetBlueWashVisuals();
-        }
-        lastPinProgress = p;
       };
-  
+
       if (!valuePropResizePatched) {
         valuePropResizePatched = true;
         window.addEventListener(
