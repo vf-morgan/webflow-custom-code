@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EPIC proof: morph dot → 6 cards (GSAP + Flip + ScrollTrigger)</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: #0f33ff; font-family: system-ui, -apple-system, sans-serif; }
+    .epic-demo-hud {
+      position: fixed; left: 0; right: 0; top: 0; z-index: 9999;
+      padding: 0.5rem 0.75rem;
+      background: rgba(0, 0, 0, 0.75);
+      color: #e8e8e8; font-size: 12px; line-height: 1.45;
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem;
+    }
+    .epic-demo-hud strong { color: #fff; }
+    .epic-demo-hud .epic-demo-ok { color: #6f6; }
+    .epic-demo-hud .epic-demo-err { color: #f88; max-width: 100%; }
+    .epic-demo-hud button { font: inherit; padding: 0.25rem 0.5rem; background: #fff; color: #0f33ff; border: 0; border-radius: 4px; cursor: pointer; }
+    .epic-demo-hud code { background: rgba(255,255,255,0.12); padding: 0.1em 0.3em; border-radius: 3px; }
+    .spacer {
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      color: rgba(255, 255, 255, 0.45); font-size: 14px; margin: 0; padding: 2.5rem 1rem 1rem; text-align: center;
+    }
+    #story {
+      min-height: 100dvh; min-height: 100vh; display: flex; flex-direction: column;
+      justify-content: center; align-items: center; position: relative; z-index: 2;
+    }
+    .epic-standalone-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;
+      max-width: 44rem; width: 100%; padding: 1rem;
+    }
+    .service-card {
+      min-height: 5rem; background: #fbfbfb; border: 1px solid rgba(0,0,0,0.1); border-radius: 0.5rem;
+      color: #111; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 600;
+    }
+    .value-prop-morph-dot--viewport {
+      position: fixed !important; left: 50%; top: 50%; width: 28px; height: 28px; z-index: 1;
+      border-radius: 50%; background: #fff; border: 5px solid #4a69f8; box-sizing: border-box;
+      transform: translate(-50%, -50%);
+    }
+  </style>
+  <!-- GSAP is loaded at the BOTTOM of <body> (order + availability). Same hosts Webflow can use. -->
+</head>
+<body>
+  <div class="epic-demo-hud" id="epicDemoHud" role="status">
+    <div><strong>EPIC burst demo</strong> — loads GSAP from <code>cdnjs</code> (fallback <code>jsDelivr</code> in code comment if this fails)</div>
+    <div class="epic-demo-ok" id="epicDemoStatus" hidden>…</div>
+    <div class="epic-demo-err" id="epicDemoError" hidden></div>
+    <div>Scroll until <code>#story</code> pins, then scrub. Or: <button type="button" id="epicDemoScrollTo">Jump to #story</button>
+      <button type="button" id="epicDemoScrub">~50% burst</button> <button type="button" id="epicDemoReset">Reset</button></div>
+  </div>
+
+  <p class="spacer">Spacer: scroll down to the blue section.</p>
+  <div class="value-prop-morph-dot value-prop-morph-dot--viewport" id="morphDot" aria-hidden="true"></div>
+  <section id="story" aria-label="Service cards">
+    <div class="epic-standalone-grid">
+      <div class="service-card"><div>1</div></div>
+      <div class="service-card"><div>2</div></div>
+      <div class="service-card"><div>3</div></div>
+      <div class="service-card"><div>4</div></div>
+      <div class="service-card"><div>5</div></div>
+      <div class="service-card"><div>6</div></div>
+    </div>
+  </section>
+  <p class="spacer">End of page</p>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/Flip.min.js"></script>
+  <script>
+  (function () {
+    "use strict";
+    // BUGFIX (earlier): never reference bare `gsap` in strict IIFE—use `window.gsap` / pass the ref.
+    // Script tags above guarantee gsap exists before this IIFE runs.
+
+    var statusEl = document.getElementById("epicDemoStatus");
+    var errEl = document.getElementById("epicDemoError");
+    function setErr(msg) {
+      if (errEl) { errEl.textContent = msg; errEl.hidden = false; }
+    }
+    function setOk(msg) {
+      if (statusEl) { statusEl.textContent = msg; statusEl.hidden = false; }
+    }
+
+    var g = window.gsap;
+    var ST = window.ScrollTrigger;
+    var Flp = window.Flip;
+
+    if (typeof g === "undefined" || !ST || !Flp) {
+      setErr("GSAP/ScrollTrigger/Flip failed to load. Check network / ad-blocker, or use a static server. Alternates: https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js (+ ScrollTrigger, Flip in same path).");
+      return;
+    }
+
+    g.registerPlugin(ST, Flp);
+
+    var BURST_DUR = 0.75, endAdd = 1600, ST_ID = "epic-service-cards-burst", storyId = "story";
+    var morph = document.getElementById("morphDot");
+    var storyEl = document.getElementById(storyId);
+    if (!morph || !storyEl) {
+      setErr("Missing #morphDot or #story");
+      return;
+    }
+
+    function getCards(ga) {
+      return ga.utils.toArray("#" + storyId + " .service-card");
+    }
+    function resetDom(ga) {
+      var cards = getCards(ga);
+      if (!cards.length) return;
+      ga.set(cards, { x: 0, y: 0, clearProps: "transform" });
+      ga.set(cards, { opacity: 0, pointerEvents: "none" });
+      var inner = document.querySelectorAll("#" + storyId + " .service-card > *");
+      if (inner && inner.length) ga.set(inner, { opacity: 0 });
+    }
+
+    try {
+      resetDom(g);
+      var cards = getCards(g);
+      if (cards.length === 0) {
+        setErr("No .service-card in #story");
+        return;
+      }
+      var r = morph.getBoundingClientRect();
+      var circCx = r.left + r.width * 0.5;
+      for (var i = 0; i < cards.length; i++) {
+        var el = cards[i], br = el.getBoundingClientRect();
+        g.set(el, { x: circCx - (br.left + br.width * 0.5), y: 0, opacity: 1, pointerEvents: "auto" });
+      }
+      var state = Flp.getState(cards);
+      g.set(cards, { x: 0, y: 0, clearProps: "transform" });
+      var flipTl = Flp.from(state, {
+        duration: BURST_DUR, ease: "none", stagger: 0.06, absolute: true, scale: true,
+      });
+      var handoff = g.timeline({ paused: true, defaults: { ease: "none" } });
+      handoff.add(flipTl, 0);
+      handoff.add(
+        g.to("#" + storyId + " .service-card > *", { opacity: 1, duration: 0.28, stagger: 0.04, ease: "none" }),
+        0.45
+      );
+      handoff.to(morph, { autoAlpha: 0, scale: 0, duration: 0.2, ease: "none" }, 0.72);
+      handoff.pause(0);
+
+      var st = ST.create({
+        id: ST_ID,
+        trigger: storyEl,
+        start: "top bottom",
+        end: "+=" + endAdd,
+        pin: true, pinSpacing: true, scrub: 0.55, animation: handoff,
+        anticipatePin: 0, invalidateOnRefresh: true,
+      });
+
+      function getSt() { return ST.getById(ST_ID); }
+      function scrollStoryIntoView() {
+        storyEl.scrollIntoView({ behavior: "instant", block: "start" });
+        g.delayedCall(0.05, function () { try { ST.refresh(); } catch (e) { /* */ } });
+      }
+      function scrubToHalf() {
+        var t = getSt();
+        if (!t) return;
+        window.scrollTo(0, t.start + (t.end - t.start) * 0.5);
+        g.delayedCall(0.05, function () { try { ST.refresh(); } catch (e) { /* */ } });
+      }
+      function resetScrub() {
+        var t = getSt();
+        if (t) window.scrollTo(0, t.start);
+        g.delayedCall(0.05, function () { try { ST.refresh(); } catch (e) { /* */ } });
+      }
+
+      document.getElementById("epicDemoScrollTo") && document.getElementById("epicDemoScrollTo").addEventListener("click", scrollStoryIntoView);
+      document.getElementById("epicDemoScrub") && document.getElementById("epicDemoScrub").addEventListener("click", function () {
+        scrollStoryIntoView();
+        g.delayedCall(0.1, scrubToHalf);
+      });
+      document.getElementById("epicDemoReset") && document.getElementById("epicDemoReset").addEventListener("click", resetScrub);
+
+      g.delayedCall(0, function () {
+        try { ST.refresh(); } catch (e) { /* */ }
+        var t2 = getSt();
+        if (t2) {
+          setOk("OK — ST active. start≈" + Math.round(t2.start) + " end≈" + Math.round(t2.end) + " px. Scroll the burst range or use buttons.");
+          console.log("[epic-standalone]", t2, "tl duration", handoff.duration());
+        } else {
+          setErr("ScrollTrigger did not create id " + ST_ID);
+        }
+      });
+
+      window.__epicStandalone = { st: st, handoff: handoff, g: g, story: storyEl, morph: morph, ST: ST, Flip: Flp };
+    } catch (e) {
+      setErr(String(e && e.message ? e.message : e) + (e && e.stack ? " — " + e.stack : ""));
+    }
+  })();
+  </script>
+</body>
+</html>

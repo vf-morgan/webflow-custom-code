@@ -1,5 +1,5 @@
-import { EPIC_INTRO_PIN_SCROLL_VH } from "./epic-constants.js";
-import { isEpicStoryDebug, epicStoryLog, br } from "./epic-debug.js";
+import { installScrubbedServiceCardsBurst, killScrubbedServiceCardsBurst } from "./epic-service-cards-handoff.js";
+import { EPIC_INTRO_PIN_SCROLL_VH, EPIC_STORY_CARDS_SCRUB_PX } from "./epic-constants.js";
 
 export function bootstrapEpicBodyIntro() {
   "use strict";
@@ -159,6 +159,30 @@ export function bootstrapEpicBodyIntro() {
       "body .value-prop-morph-dot--viewport.value-prop-morph-dot {",
       "  z-index: 30 !important;",
       "  position: fixed !important;",
+      "}",
+      "/* value-prop-morph is appended last on body: z-30 can paint over #story. During service-card burst,",
+      "   body.epic-burst-below-morph (set in handoff) lowers the morph; #story + parent are lifted. */",
+      "body.epic-burst-below-morph .value-prop-morph-dot--viewport,",
+      "body.epic-burst-below-morph .value-prop-morph-dot--viewport.value-prop-morph-dot {",
+      "  z-index: 1 !important;",
+      "}",
+      "/* During burst, force #story to fill the viewport and center its content. Without this,",
+      "   the morph dot (viewport center) and the cards (stuck in document flow) are in different",
+      "   Y bands: Flip can look off-screen or mostly vertical. See /demo/epic-service-cards-standalone.html */",
+      "body.epic-burst-below-morph #story {",
+      "  position: relative !important;",
+      "  z-index: 2 !important;",
+      "  isolation: isolate !important;",
+      "  min-height: 100dvh !important;",
+      "  min-height: 100vh !important;",
+      "  display: flex !important;",
+      "  flex-direction: column !important;",
+      "  justify-content: center !important;",
+      "  align-items: center !important;",
+      "  box-sizing: border-box !important;",
+      "}",
+      ".value-prop-morph-dot {",
+      "  box-sizing: border-box !important;",
       "}",
       "body .body-intro .body-intro__stage, .body-intro__stage {",
       "  display: block !important;",
@@ -388,21 +412,12 @@ export function bootstrapEpicBodyIntro() {
     if (!bodyIntro || !h2) return;
 
     injectBodyIntroLayoutStyles();
-    (function removeEpicIntroBufferIfAny() {
-      var legacy = document.getElementById("epic-intro-to-story-buffer");
-      if (legacy && legacy.parentNode) {
-        try {
-          legacy.parentNode.removeChild(legacy);
-        } catch (eR) {}
-      }
-    })();
 
     if (h2.dataset.valuePropInit === "1") return;
     h2.dataset.valuePropInit = "1";
 
     ensureStage(h2);
 
-    /* `prefers-reduced-motion`: if you change this path, also review the REDUCED_MOTION block in `story-anim.js`. */
     if (REDUCED_MOTION) {
       gsap.set(h2, { autoAlpha: 1, color: "#ffffff" });
       gsap.set(bodyIntro, { backgroundColor: "#0f33ff" });
@@ -419,10 +434,13 @@ export function bootstrapEpicBodyIntro() {
         top: "50vh",
         xPercent: -50,
         yPercent: -50,
-        width: 14,
-        height: 14,
+        width: 28,
+        height: 28,
         borderRadius: "50%",
         backgroundColor: "#ffffff",
+        borderStyle: "solid",
+        borderColor: "#4a69f8",
+        borderWidth: 5,
         autoAlpha: 1,
         pointerEvents: "none",
       });
@@ -477,15 +495,10 @@ export function bootstrapEpicBodyIntro() {
         morphDot.setAttribute("aria-hidden", "true");
         stage.appendChild(morphDot);
       }
-    try {
-      window.__epicMorphDot = morphDot;
-    } catch (e) {}
-    if (isEpicStoryDebug()) {
       try {
-        epicStoryLog("body-intro onSplit → morph in DOM, __epicMorphDot set", { bcr: br(morphDot) });
-      } catch (eD0) {}
-    }
-    gsap.set(morphDot, { autoAlpha: 0, pointerEvents: "none" });
+        window.__epicMorphDot = morphDot;
+      } catch (e) {}
+      gsap.set(morphDot, { autoAlpha: 0, pointerEvents: "none" });
   
       prepCharWidths(contentLines, chars);
   
@@ -514,6 +527,8 @@ export function bootstrapEpicBodyIntro() {
   
       /** Pinned scrub sequence (onUpdate wired after merge; holder avoids forward-ref). */
       var pinBlueWashScroll = { onUpdate: null };
+      /** True only after forward blue-wash commits. Must exist before `pinTl` onUpdate references it. */
+      var blueFieldCommitted = false;
       var pinTl = gsap.timeline({
         defaults: { ease: "none" },
         scrollTrigger: {
@@ -642,6 +657,9 @@ export function bootstrapEpicBodyIntro() {
         },
         borderRadius: 0,
         backgroundColor: "#0f33ff",
+        borderWidth: 0,
+        borderColor: "transparent",
+        borderStyle: "solid",
       };
   
       var mergeTL = gsap.timeline();
@@ -685,6 +703,9 @@ export function bootstrapEpicBodyIntro() {
           },
           borderRadius: 0,
           backgroundColor: "#0f33ff",
+          borderWidth: 0,
+          borderColor: "transparent",
+          borderStyle: "solid",
         },
         {
           autoAlpha: 1,
@@ -692,9 +713,13 @@ export function bootstrapEpicBodyIntro() {
           top: "50vh",
           xPercent: -50,
           yPercent: -50,
-          width: 14,
-          height: 14,
+          width: 28,
+          height: 28,
           borderRadius: "50%",
+          backgroundColor: "#ffffff",
+          borderStyle: "solid",
+          borderColor: "#4a69f8",
+          borderWidth: 5,
           duration: 0.22,
           ease: "power2.inOut",
         },
@@ -727,8 +752,6 @@ export function bootstrapEpicBodyIntro() {
         stage.appendChild(morphDot);
       }
   
-      /** True only after forward blue-wash commits (solid blue); enables iris reverse on scroll-up. */
-      var blueFieldCommitted = false;
       var blueWashReverseInProgress = false;
       var blueWashActiveTl = null;
       var blueBurstEl = null;
@@ -747,32 +770,7 @@ export function bootstrapEpicBodyIntro() {
           blueWashActiveTl = null;
         }
         blueWashReverseInProgress = false;
-  
-        var handoff =
-          typeof window !== "undefined" && window.__epicStoryHandoffActive;
-        if (handoff && blueFieldCommitted) {
-          return;
-        }
-        if (handoff && !blueFieldCommitted) {
-          removeBlueBurst();
-          reparentMorphDotToBody();
-          try {
-            gsap.set(morphDot, {
-              autoAlpha: 1,
-              pointerEvents: "none",
-              backgroundColor: "#ffffff",
-              zIndex: 30,
-            });
-          } catch (eDot) {}
-          try {
-            gsap.set([bodyIntro, document.documentElement, document.body], {
-              backgroundColor: "#0f33ff",
-            });
-          } catch (eBg) {}
-          blueFieldCommitted = true;
-          return;
-        }
-  
+
         removeBlueBurst();
         var burst = document.createElement("div");
         burst.className = "epic-blue-burst";
@@ -795,14 +793,23 @@ export function bootstrapEpicBodyIntro() {
   
         blueWashActiveTl = gsap.timeline({ defaults: { ease: "power2.out", overwrite: "auto" } });
         /**
-         * z-index: morph above .epic-blue-burst (see layout CSS). White dot on frame 0, surfaces blue
-         * immediately so there is no long “all blue, no visible circle” beat while the burst expands.
+         * Morph above .epic-blue-burst (layout CSS). Do not set html/body/intro blue until
+         * commitBlueField — same color as the burst made the radial expand invisible on scroll down.
          */
-        blueWashActiveTl.set(morphDot, { backgroundColor: "#ffffff", autoAlpha: 1, zIndex: 30 }, 0);
         blueWashActiveTl.set(
-          [bodyIntro, document.documentElement, document.body],
-          { backgroundColor: "#0f33ff" },
-          0.01
+          morphDot,
+          {
+            backgroundColor: "#ffffff",
+            borderStyle: "solid",
+            borderColor: "#4a69f8",
+            borderWidth: 5,
+            width: 28,
+            height: 28,
+            borderRadius: "50%",
+            autoAlpha: 1,
+            zIndex: 30,
+          },
+          0
         );
         blueWashActiveTl.to(burst, {
           scale: 1,
@@ -811,20 +818,56 @@ export function bootstrapEpicBodyIntro() {
         });
         blueWashActiveTl.add(function commitBlueField() {
           try {
-            gsap.set(morphDot, { backgroundColor: "#ffffff", autoAlpha: 1, zIndex: 30 });
+            gsap.set(morphDot, {
+              backgroundColor: "#ffffff",
+              borderStyle: "solid",
+              borderColor: "#4a69f8",
+              borderWidth: 5,
+              width: 28,
+              height: 28,
+              borderRadius: "50%",
+              autoAlpha: 1,
+              zIndex: 30,
+            });
           } catch (e0) {}
           try {
             gsap.set([bodyIntro, document.documentElement, document.body], { backgroundColor: "#0f33ff" });
           } catch (e1) {}
           removeBlueBurst();
           blueFieldCommitted = true;
+          try {
+            if (typeof window !== "undefined") {
+              window.__epicMorphCommitDone = true;
+            }
+          } catch (e3) {
+            /* */
+          }
+          requestAnimationFrame(function () {
+            // #region agent log
+            fetch("http://127.0.0.1:7893/ingest/7d36643c-3119-4e7b-9535-9cb0977654ec", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "efd621" }, body: JSON.stringify({ sessionId: "efd621", hypothesisId: "H1", runId: "pre-fix", location: "body-intro:commitBlueField:rAF", message: "calling_install", data: { blueFieldCommitted: true, scrollY: window.pageYOffset, hasStory: !!document.getElementById("story") }, timestamp: Date.now() }) }).catch(function () {});
+            // #endregion
+            try {
+              installScrubbedServiceCardsBurst({
+                gsap: gsap,
+                ScrollTrigger: ScrollTrigger,
+                morphEl: morphDot,
+                scrubPx: EPIC_STORY_CARDS_SCRUB_PX,
+              });
+            } catch (e2) {
+              /* */
+            }
+            requestAnimationFrame(function () {
+              try {
+                ScrollTrigger.refresh();
+              } catch (e4) {
+                /* */
+              }
+            });
+          });
         });
       }
   
       function playBlueWashReverse() {
-        if (typeof window !== "undefined" && window.__epicStoryHandoffActive) {
-          return;
-        }
         if (blueWashActiveTl) {
           blueWashActiveTl.kill();
           blueWashActiveTl = null;
@@ -832,64 +875,85 @@ export function bootstrapEpicBodyIntro() {
         removeBlueBurst();
         blueWashReverseInProgress = true;
   
-        gsap.set([bodyIntro, document.documentElement, document.body], { backgroundColor: "#fbfbfb" });
+        function startBlueIrisAndMorph() {
+          try {
+            killScrubbedServiceCardsBurst(ScrollTrigger);
+          } catch (eKill) {
+            /* */
+          }
+          gsap.set([bodyIntro, document.documentElement, document.body], { backgroundColor: "#fbfbfb" });
   
-        var burst = document.createElement("div");
-        burst.className = "epic-blue-burst";
-        burst.setAttribute("aria-hidden", "true");
-        document.body.appendChild(burst);
-        blueBurstEl = burst;
-        reparentMorphDotToBody();
+          var burst = document.createElement("div");
+          burst.className = "epic-blue-burst";
+          burst.setAttribute("aria-hidden", "true");
+          document.body.appendChild(burst);
+          blueBurstEl = burst;
+          reparentMorphDotToBody();
   
-        gsap.set(burst, {
-          left: "50%",
-          top: "50%",
-          xPercent: -50,
-          yPercent: -50,
-          width: "260vmax",
-          height: "260vmax",
-          scale: 1,
-          transformOrigin: "50% 50%",
-          force3D: true,
-        });
+          gsap.set(burst, {
+            left: "50%",
+            top: "50%",
+            xPercent: -50,
+            yPercent: -50,
+            width: "260vmax",
+            height: "260vmax",
+            scale: 1,
+            transformOrigin: "50% 50%",
+            force3D: true,
+          });
   
-        blueWashActiveTl = gsap.timeline({ defaults: { overwrite: "auto" } });
-        blueWashActiveTl.to(burst, {
-          scale: 0,
-          duration: 0.88,
-          ease: "power2.in",
-        });
-        blueWashActiveTl.to(
-          morphDot,
-          {
-            backgroundColor: "#0f33ff",
-            duration: 0.28,
+          blueWashActiveTl = gsap.timeline({ defaults: { overwrite: "auto" } });
+          blueWashActiveTl.to(burst, {
+            scale: 0,
+            duration: 0.88,
             ease: "power2.in",
-          },
-          "-=0.28"
-        );
-        blueWashActiveTl.add(function finishBlueWashReverse() {
-          removeBlueBurst();
-          gsap.set(morphDot, { backgroundColor: "#0f33ff" });
-          restoreMorphDotToStage();
-          blueFieldCommitted = false;
-          blueWashReverseInProgress = false;
-          blueWashActiveTl = null;
-        });
+          });
+          blueWashActiveTl.to(
+            morphDot,
+            {
+              backgroundColor: "#0f33ff",
+              borderWidth: 0,
+              borderColor: "transparent",
+              duration: 0.28,
+              ease: "power2.in",
+            },
+            "-=0.28"
+          );
+          blueWashActiveTl.add(function finishBlueWashReverse() {
+            removeBlueBurst();
+            gsap.set(morphDot, {
+              backgroundColor: "#0f33ff",
+              borderWidth: 0,
+              borderColor: "transparent",
+            });
+            restoreMorphDotToStage();
+            blueFieldCommitted = false;
+            blueWashReverseInProgress = false;
+            blueWashActiveTl = null;
+          });
+        }
+  
+        startBlueIrisAndMorph();
       }
   
       function resetBlueWashVisuals() {
-        if (typeof window !== "undefined" && window.__epicStoryHandoffActive) {
-          return;
-        }
         if (blueWashActiveTl) {
           blueWashActiveTl.kill();
           blueWashActiveTl = null;
         }
+        try {
+          killScrubbedServiceCardsBurst(ScrollTrigger);
+        } catch (eK) {
+          /* */
+        }
         blueWashReverseInProgress = false;
         removeBlueBurst();
         gsap.set([bodyIntro, document.documentElement, document.body], { backgroundColor: "#fbfbfb" });
-        gsap.set(morphDot, { backgroundColor: "#0f33ff" });
+        gsap.set(morphDot, {
+          backgroundColor: "#0f33ff",
+          borderWidth: 0,
+          borderColor: "transparent",
+        });
         restoreMorphDotToStage();
         blueFieldCommitted = false;
       }
